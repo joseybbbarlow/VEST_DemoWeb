@@ -1,5 +1,8 @@
 // Canine Vital Signs Monitoring System - Main JavaScript
-
+let ppgBuffer = [];
+let lastBeatTime = 0;
+let beatIntervals = [];
+let threshold = 550;
 // BLE UUIDs (must match Arduino code)
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 const TEMP_CHAR_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
@@ -165,25 +168,67 @@ function updateTemperatureStatus(avgTemp) {
 /**
  * Handle PPG data from BLE
  */
+/**
+ * Handle PPG data from BLE with proper peak detection
+ */
 function handlePPGData(event) {
     const value = event.target.value;
     const ppgSignal = value.getUint8(0) | (value.getUint8(1) << 8);
     
     document.getElementById('ppgRaw').textContent = ppgSignal;
     
-    // Estimate heart rate from PPG signal (simplified)
-    // In real implementation, this would use peak detection algorithm
-    const estimatedHR = Math.round(60 + (ppgSignal - 500) / 10);
-    document.getElementById('hrValue').textContent = estimatedHR;
-
+    // Add to buffer for peak detection
+    ppgBuffer.push(ppgSignal);
+    if (ppgBuffer.length > 10) {
+        ppgBuffer.shift(); // Keep last 10 samples
+    }
+    
+    // Detect peaks (heartbeats)
+    if (ppgBuffer.length >= 5) {
+        const currentSample = ppgBuffer[ppgBuffer.length - 1];
+        const prevSample = ppgBuffer[ppgBuffer.length - 2];
+        const prev2Sample = ppgBuffer[ppgBuffer.length - 3];
+        
+        // Peak detection: current sample is higher than threshold 
+        // and higher than neighbors (local maximum)
+        if (currentSample > threshold && 
+            currentSample > prevSample && 
+            prevSample > prev2Sample) {
+            
+            const currentTime = Date.now();
+            
+            // Avoid detecting the same peak multiple times (debounce)
+            if (currentTime - lastBeatTime > 300) { // Min 300ms between beats (200 BPM max)
+                
+                if (lastBeatTime > 0) {
+                    const interval = currentTime - lastBeatTime;
+                    beatIntervals.push(interval);
+                    
+                    // Keep last 5 intervals for averaging
+                    if (beatIntervals.length > 5) {
+                        beatIntervals.shift();
+                    }
+                    
+                    // Calculate BPM from average interval
+                    const avgInterval = beatIntervals.reduce((a, b) => a + b) / beatIntervals.length;
+                    const bpm = Math.round(60000 / avgInterval); // 60000 ms per minute
+                    
+                    // Only display if reasonable (40-200 BPM)
+                    if (bpm >= 40 && bpm <= 200) {
+                        document.getElementById('hrValue').textContent = bpm;
+                        updateHeartRateStatus(bpm);
+                    }
+                }
+                
+                lastBeatTime = currentTime;
+            }
+        }
+    }
+    
     // Signal quality assessment
     const quality = ppgSignal > 400 && ppgSignal < 700 ? 'Good' : 'Poor';
     document.getElementById('ppgQuality').textContent = quality;
-
-    // Check health status
-    updateHeartRateStatus(estimatedHR);
 }
-
 /**
  * Update heart rate health status
  */
