@@ -1,4 +1,5 @@
 // Canine Vital Signs Monitoring System - Main JavaScript
+//hello
 let ppgBuffer = [];
 let lastBeatTime = 0;
 let beatIntervals = [];
